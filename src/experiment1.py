@@ -47,7 +47,7 @@ rels  = {}
 cats = os.listdir('../data/BATS_3.0')
 print(cats)
 for cat in cats:
-    if not os.path.isdir('./BATS_3.0/'+cat): continue
+    if not os.path.isdir('../data/BATS_3.0/'+cat): continue
     for f in os.listdir('../data/BATS_3.0/'+cat):
         rels[f.split()[0]]='../data/BATS_3.0/'+cat+'/'+f
 
