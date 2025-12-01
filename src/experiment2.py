@@ -10,6 +10,7 @@ from nltk.tokenize import sent_tokenize
 np.random.seed(100)
 
 from transformers import AutoTokenizer, RobertaModel, ModernBertModel
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class Representation:
@@ -25,10 +26,10 @@ class Representation:
             print(len(self.gloveModel)," words loaded!")
         if lm=='roberta':
             self.tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base",clean_up_tokenization_spaces=True)
-            self.robertaModel = RobertaModel.from_pretrained("roberta-base",add_pooling_layer=False)
+            self.robertaModel = RobertaModel.from_pretrained("roberta-base",add_pooling_layer=False).to(device)
         if lm=='mbert':
             self.tokenizer = AutoTokenizer.from_pretrained('answerdotai/ModernBERT-base')
-            self.mbertModel = ModernBertModel.from_pretrained('answerdotai/ModernBERT-base')
+            self.mbertModel = ModernBertModel.from_pretrained('answerdotai/ModernBERT-base').to(device)
 
             # tt = self.tokenizer('this is a sample sentence')['input_ids']
             # print(self.tokenizer.batch_decode(tt[1:-1]))
@@ -39,27 +40,36 @@ class Representation:
         for t in T:
             for w in t.split(): 
                 if w not in self.gloveModel:   self.gloveModel[w]= np.random.rand(300)
-            E.append(np.stack([self.gloveModel[w] for w in t.split()]))
+            # E.append(np.stack([self.gloveModel[w] for w in t.split()]))
+            E.append(torch.stack([torch.FloatTensor(self.gloveModel[w],device=device) for w in t.split()]))
+
         return E
 
     def roberta(self, t):
-        inputs = self.tokenizer(t, return_tensors="pt",truncation=True, padding=True, return_offsets_mapping=True)
-        # out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state[0][1:-1].detach().numpy()
-        out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
-        E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
-
-        for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
+        inputs = self.tokenizer(t, return_tensors="pt",truncation=True, padding=True, return_offsets_mapping=True).to(device)
+        out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach()
+        E = [torch.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
         return E
+
+        # out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state[0][1:-1].detach().numpy()
+        # out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
+        # E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
+
+        # for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
+        # return E
     
     def mbert(self, t):
-        inputs = self.tokenizer(t, return_tensors="pt",truncation=True, padding=True, return_offsets_mapping=True)
+        inputs = self.tokenizer(t, return_tensors="pt",truncation=True, padding=True, return_offsets_mapping=True).to(device)
+        out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach()
+        E = [torch.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
+        return E
         # out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state[0][1:-1].detach().numpy()
 
-        out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
-        E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
+        # out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
+        # E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
 
-        for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
-        return E
+        # for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
+        # return E
 
         # return out
 
@@ -144,11 +154,11 @@ def main(lm, size, batch_size, rank=None):
         assert len(batch_embs)==batch_size
         for embs in batch_embs:
             for i in range(embs.shape[0]-1):
-                Pos.append((embs[i],embs[i+1]))
+                Pos.append((embs[i].numpy(),embs[i+1].numpy()))
                 index = list(range(embs.shape[0]))
                 index.remove(i+1)
                 random.seed(100)
-                Neg.append((embs[i],embs[random.sample(index,1)[0]]))
+                Neg.append((embs[i].numpy(),embs[random.sample(index,1)[0]].numpy()))
             # Neg.append((embs[i],embs[i+3 if i < embs.shape[0]-3 else i-2]))
 
             for e in embs:  E.append(e)
@@ -156,8 +166,8 @@ def main(lm, size, batch_size, rank=None):
 
 
     t=time.time()
-    Et = [torch.FloatTensor(e) for e in E]
-    Et = torch.stack(Et).unsqueeze(0)
+    # Et = [torch.FloatTensor(e,device=device) for e in E]
+    Et = torch.stack(E).unsqueeze(0)
     dist = torch.cdist(Et,Et,p=2).squeeze()
     # dist.fill_diagonal_(0)
     dist.diagonal().zero_()
