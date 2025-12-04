@@ -50,36 +50,22 @@ class Representation:
         out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach()
         E = [torch.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
         return E
-
-        # out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state[0][1:-1].detach().numpy()
-        # out = self.robertaModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
-        # E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
-
-        # for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
-        # return E
     
     def mbert(self, t):
         inputs = self.tokenizer(t, return_tensors="pt",truncation=True, padding=True, return_offsets_mapping=True).to(device)
         out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach()
         E = [torch.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
         return E
-        # out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state[0][1:-1].detach().numpy()
-
-        # out = self.mbertModel(input_ids = inputs['input_ids'], attention_mask = inputs['attention_mask']).last_hidden_state.detach().numpy()
-        # E = [np.stack([e for e,m in zip(emb,mask) if m==1][1:-1]) for emb,mask in zip(out,inputs['attention_mask'])]
-
-        # for e,tt in zip(E,t):   assert e.shape[0]==len(self.tokenizer(tt)['input_ids'])-2
-        # return E
-
-        # return out
-
+        
     # Get representation of a text by using LM
     def getEmbs(self, t):
-        if self.lm=='glove':    return self.glove(t)
-        if self.lm=='roberta':  return self.roberta(t)
-        if self.lm=='mbert':    return self.mbert(t)
+        if self.lm=='glove':    E = self.glove(t)
+        elif self.lm=='roberta':  E = self.roberta(t)
+        elif self.lm=='mbert':    E = self.mbert(t)
+        else:   raise Exception('Undefined lm: '+self.lm)
 
-        raise Exception('Undefined lm: '+self.lm)
+        return E
+        # return [e*self.scale for e in E]
     
     # # Get representation of a list of pairs of texts by using LM
     # def getAvgEmbs(self, T):
@@ -120,7 +106,6 @@ def LinApprox(Pr, Nr, rank=None, verbose=False):
 # Return N sentences from Wiki
 def readWiki(size):
     wiki_path='../../Data/Wiki'
-    # print(os.listdir('../../data/Wiki'))
     dirs = os.listdir(wiki_path)
     dataset = []
     for dir in sorted(dirs):
@@ -148,10 +133,10 @@ def main(lm, size, batch_size, rank=None):
     Pos,Neg,E = [],[],[]
 
     t=time.time()
+    count = 0
     # for sent in Sents:
     for i in range(0,len(Sents),batch_size):
         batch_embs = Rep.getEmbs(Sents[i:i+batch_size])
-        # assert len(batch_embs)==batch_size
         for embs in batch_embs:
             for i in range(embs.shape[0]-1):
                 Pos.append((embs[i].cpu().numpy(),embs[i+1].cpu().numpy()))
@@ -159,38 +144,19 @@ def main(lm, size, batch_size, rank=None):
                 index.remove(i+1)
                 random.seed(100)
                 Neg.append((embs[i].cpu().numpy(),embs[random.sample(index,1)[0]].cpu().numpy()))
-            # Neg.append((embs[i],embs[i+3 if i < embs.shape[0]-3 else i-2]))
-
+                # Neg.append((embs[i],embs[i+3 if i < embs.shape[0]-3 else i-2]))
             for e in embs:  E.append(e)
+        count+=len(batch_embs)
+    assert count==len(Sents)
+
     print("Data prep time:",datetime.timedelta(seconds=time.time()-t))
 
-
-    t=time.time()
-    Et = torch.stack(E[:5]).unsqueeze(0)
-    dist = torch.cdist(Et,Et,p=2).squeeze()
-
-    print(dist)
-    En = [e.cpu().numpy() for e in E[:5]]
-    dist = [np.linalg.norm((e1-e2)) for e1 in En for e2 in En]
-    print(dist)
-
-    Et = torch.stack(E).unsqueeze(0)
-    dist = torch.cdist(Et,Et,p=2).squeeze()
-    dist.diagonal().zero_()
-    dist = dist.flatten().tolist()
-    dist = [d for d in dist if d!=0]
-
-    mod_1 = min(dist)/2
-    print("MoD calc time:",datetime.timedelta(seconds=time.time()-t))
-
-    t=time.time()
-    En = [e.cpu().numpy() for e in E]
-    dist = [np.linalg.norm((e1-e2)) for e1 in En for e2 in En]
-    dist = [d for d in dist if d!=0]
-    mod = min(dist)/2
-    print("MoD calc time:",datetime.timedelta(seconds=time.time()-t))
-
-    print(mod, mod_1)
+    # t=time.time()
+    # Et = torch.stack(E).unique(dim=0).unsqueeze(0)
+    # dist = torch.cdist(Et,Et,p=2).squeeze()
+    # dist.fill_diagonal_(100000)
+    # mod = float(dist.min()/2)
+    # print("MoD calc time:",datetime.timedelta(seconds=time.time()-t))
 
     t=time.time()
     Pr = np.stack([np.concatenate((t1,t2)) for t1,t2 in Pos]).T
@@ -200,7 +166,7 @@ def main(lm, size, batch_size, rank=None):
 
     print("Error of approximation:", EoA)
     print("Avg error of approximation:", EoA/Pr.shape[1])
-    print("Avg normalized error of approximation:", EoA/(Pr.shape[1]*mod))
+    # print("Avg normalized error of approximation:", EoA/(Pr.shape[1]*mod))
 
 
 if __name__ == '__main__':
