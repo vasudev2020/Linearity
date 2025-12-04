@@ -41,7 +41,7 @@ class Representation:
             for w in t.split(): 
                 if w not in self.gloveModel:   self.gloveModel[w]= np.random.rand(300)
             # E.append(np.stack([self.gloveModel[w] for w in t.split()]))
-            E.append(torch.stack([torch.FloatTensor(self.gloveModel[w],device=device) for w in t.split()]))
+            E.append(torch.stack([torch.FloatTensor(self.gloveModel[w]) for w in t.split()]).to(device))
 
         return E
 
@@ -151,14 +151,14 @@ def main(lm, size, batch_size, rank=None):
     # for sent in Sents:
     for i in range(0,len(Sents),batch_size):
         batch_embs = Rep.getEmbs(Sents[i:i+batch_size])
-        assert len(batch_embs)==batch_size
+        # assert len(batch_embs)==batch_size
         for embs in batch_embs:
             for i in range(embs.shape[0]-1):
-                Pos.append((embs[i].numpy(),embs[i+1].numpy()))
+                Pos.append((embs[i].cpu().numpy(),embs[i+1].cpu().numpy()))
                 index = list(range(embs.shape[0]))
                 index.remove(i+1)
                 random.seed(100)
-                Neg.append((embs[i].numpy(),embs[random.sample(index,1)[0]].numpy()))
+                Neg.append((embs[i].cpu().numpy(),embs[random.sample(index,1)[0]].cpu().numpy()))
             # Neg.append((embs[i],embs[i+3 if i < embs.shape[0]-3 else i-2]))
 
             for e in embs:  E.append(e)
@@ -166,24 +166,26 @@ def main(lm, size, batch_size, rank=None):
 
 
     t=time.time()
-    # Et = [torch.FloatTensor(e,device=device) for e in E]
+    Et = torch.stack(E[:5]).unsqueeze(0)
+    dist = torch.cdist(Et,Et,p=2).squeeze()
+
+    print(dist)
+    En = [e.cpu().numpy() for e in E[:5]]
+    dist = [np.linalg.norm((e1-e2)) for e1 in En for e2 in En]
+    print(dist)
+
     Et = torch.stack(E).unsqueeze(0)
     dist = torch.cdist(Et,Et,p=2).squeeze()
-    # dist.fill_diagonal_(0)
     dist.diagonal().zero_()
     dist = dist.flatten().tolist()
-    # dist = []
-    # for e1 in Et: 
-    #     dist += torch.linalg.norm(torch.stack([e1-e2 for e2 in Et]),dim=-1).squeeze().tolist()
-
     dist = [d for d in dist if d!=0]
-    print(len(dist))
-    mod_1 = min(dist)/2
 
+    mod_1 = min(dist)/2
     print("MoD calc time:",datetime.timedelta(seconds=time.time()-t))
 
     t=time.time()
-    dist = [np.linalg.norm(e1-e2) for e1 in E for e2 in E]
+    En = [e.cpu().numpy() for e in E]
+    dist = [np.linalg.norm((e1-e2)) for e1 in En for e2 in En]
     dist = [d for d in dist if d!=0]
     mod = min(dist)/2
     print("MoD calc time:",datetime.timedelta(seconds=time.time()-t))
@@ -196,6 +198,7 @@ def main(lm, size, batch_size, rank=None):
     EoA, _ = LinApprox(Pr,Nr,rank=rank,verbose=False)
     print("Lin Approx time:",datetime.timedelta(seconds=time.time()-t))
 
+    print("Error of approximation:", EoA)
     print("Avg error of approximation:", EoA/Pr.shape[1])
     print("Avg normalized error of approximation:", EoA/(Pr.shape[1]*mod))
 
