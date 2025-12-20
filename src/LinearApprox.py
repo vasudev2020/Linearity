@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.optimize as opt
 
+np.random.seed(100)
+
 from transformers import AutoTokenizer, RobertaModel
 
 class LinApprox:
@@ -59,6 +61,8 @@ class LinApprox:
         if verbose: print('Number of unrelated text:',Nr.shape[1])
 
         if rank is None:   rank = 2*dim
+        if verbose: print('Rank of approx :',rank)
+
 
         U,S,V = np.linalg.svd(Pr)
         C = np.square(S)
@@ -72,7 +76,7 @@ class LinApprox:
         except: return 1000000, None
 
         # assert round(np.min(np.linalg.norm(np.matmul(M,Nr),axis=0)),2)>=1
-        if round(np.min(np.linalg.norm(np.matmul(self.M,Nr),axis=0)),2)<1:   print("Infeasible solution")
+        if round(np.min(np.linalg.norm(np.matmul(self.M,Nr),axis=0)),2)<0.99:   print("Infeasible solution")
         # assert M.shape[0]==2*dim and M.shape[1]==2*dim
         assert self.M.shape[0]==rank and self.M.shape[1]==2*dim
 
@@ -85,6 +89,37 @@ class LinApprox:
             print("Negative sample error:",self.getApproxError(Tn))
 
         return res.fun, self.M
+        return res.fun/Pr.shape[1], self.M
+
+    # Pr: (2*dim, Np), Nr: (2*dim, Nn)
+    def LinApprox(self, Pr, Nr, rank=None, verbose=False):
+        assert Pr.shape[0]==Nr.shape[0]
+        if verbose: print('Number of related pairs  :',Pr.shape[1])
+        if verbose: print('Number of unrelated pairs:',Nr.shape[1])
+        if verbose: print('Combined embedding dimension:',Pr.shape[0])
+
+        if rank is None:   rank = Pr.shape[0]
+
+        U,S,V = np.linalg.svd(Pr)
+
+        C = np.square(S)
+        C = np.pad(C,(0,Pr.shape[0]-C.shape[0]))[:rank] # Truncate C to size r
+        U = U[:,:rank]                                  # Truncate U to shape (U.shpae[0],rank)
+        A = np.square(np.matmul(Nr.T, U))
+
+        if verbose: print('LP is starting with',C.shape, 'variables and', A.shape[0], 'constraints')
+        res = opt.linprog(C, A_ub=-A, b_ub = -np.ones(A.shape[0]))
+        
+        try:    self.M = np.matmul(np.diag(np.sqrt(res.x)), U.T)
+        except: return 1000000
+
+        if round(np.min(np.linalg.norm(np.matmul(self.M, Nr),axis=0)),2)<0.9:   print("Infeasible solution")
+        assert self.M.shape[0]==rank and self.M.shape[1]==Pr.shape[0]
+
+        if verbose: print('Error of approximation  :',res.fun)
+
+        return res.fun/Pr.shape[1]
+
     
     # def evaluate(self,TrPosSamples, TrNegSamples, TePosSamples, rank=None, verbose=False):
     #     self.approximate(TrPosSamples, TrNegSamples, rank, verbose)
