@@ -99,6 +99,7 @@ class LinApprox:
         if verbose: print('Combined embedding dimension:',Pr.shape[0])
 
         if rank is None:   rank = Pr.shape[0]
+        if rank < 1:    rank = int(Pr.shape[0]*rank)
 
         U,S,V = np.linalg.svd(Pr)
 
@@ -108,7 +109,9 @@ class LinApprox:
         A = np.square(np.matmul(Nr.T, U))
 
         if verbose: print('LP is starting with',C.shape, 'variables and', A.shape[0], 'constraints')
-        res = opt.linprog(C, A_ub=-A, b_ub = -np.ones(A.shape[0]))
+        res = opt.linprog(method='highs-ds', c=C, A_ub=-A, b_ub = -np.ones(A.shape[0]))
+        # res = opt.linprog(method='highs-ipm', c=C, A_ub=-A, b_ub = -np.ones(A.shape[0]))
+
         
         try:    self.M = np.matmul(np.diag(np.sqrt(res.x)), U.T)
         except: return 1000000
@@ -120,6 +123,17 @@ class LinApprox:
 
         return res.fun/Pr.shape[1]
 
+    def getOutliers(self,Pr,threshold):
+        if self.M is None:   return np.array([True]*Pr.shape[1])
+        norm = np.linalg.norm(np.matmul(self.M,Pr),axis=0)
+
+        return norm>threshold,norm
+    
+    def saveModel(self,filename):
+        np.save(filename,self.M)
+
+    def loadModel(self,filename):
+        self.M = np.load(filename)
     
     # def evaluate(self,TrPosSamples, TrNegSamples, TePosSamples, rank=None, verbose=False):
     #     self.approximate(TrPosSamples, TrNegSamples, rank, verbose)
