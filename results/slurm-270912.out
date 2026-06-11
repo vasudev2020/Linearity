@@ -1,0 +1,8 @@
+glove 1000
+Data load time: 0:00:00.112682
+2195875  words loaded!
+Data prep time: 0:00:01.250953
+Lin Approx time: 0:02:15.396002
+Error of approximation: 26204.189513863013
+Avg error of approximation: 1.357589343791473
+Total Execution Time: 0:05:30.119796

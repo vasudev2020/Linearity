@@ -1,0 +1,7 @@
+roberta 2000
+Data load time: 0:00:00.059200
+Data prep time: 0:00:12.764471
+Lin Approx time: 0:50:52.347361
+Error of approximation: 68107.6061683179
+Avg error of approximation: 1.333952370259081
+Total Execution Time: 0:51:08.614227
